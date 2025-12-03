@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Classic Snake Game</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js CDN for audio synthesis -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+    <style>
+        /* Menggunakan font Inter secara default */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Background lebih cerah */
+        }
+        /* Mengatur agar Canvas meresponsif di dalam containernya */
+        canvas {
+            border: 4px solid #3b82f6; /* Border biru untuk nuansa modern */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            margin: 0 auto;
+            display: block;
+        }
+        
+        /* Mobile Controls Styling */
+        .mobile-controls {
+            display: none; /* Sembunyikan secara default di desktop */
+            user-select: none; /* Mencegah pemilihan teks pada tombol */
+        }
+        @media (max-width: 640px) {
+            .mobile-controls {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                padding-top: 1.5rem;
+            }
+        }
+        .control-btn {
+            background-color: #3b82f6; /* Warna tombol biru */
+            color: white;
+            font-size: 1.5rem;
+            font-weight: bold;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px #1d4ed8; /* Efek 3D/shadow */
+            transition: all 0.1s ease;
+            touch-action: manipulation; /* Memperbaiki respon sentuh */
+        }
+        .control-btn:active {
+            box-shadow: 0 2px #1d4ed8;
+            transform: translateY(2px);
+        }
+
+        /* Style untuk Start Screen dan Modal */
+        .full-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .start-card {
+            max-width: 400px;
+            width: 90%;
+            background-color: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+            text-align: center;
+        }
+        
+        /* --- Custom Animations for Feedback --- */
+
+        /* Confetti Effect (Balloons) */
+        @keyframes fall {
+            0% { transform: translate(0, -100px) rotate(0deg); opacity: 1; }
+            100% { transform: translate(var(--x), 100vh) rotate(var(--rot)); opacity: 0; }
+        }
+
+        /* Explosion Effect (Boom) */
+        @keyframes explode {
+            0% { transform: scale(0); opacity: 1; }
+            50% { transform: scale(2); opacity: 0.8; }
+            100% { transform: scale(4); opacity: 0; }
+        }
+
+        .confetti {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: var(--color);
+            border-radius: 50%;
+            animation: fall 2s ease-out forwards;
+            pointer-events: none;
+        }
+
+        .explosion-shockwave {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle, rgba(255, 165, 0, 1) 0%, rgba(255, 0, 0, 0.5) 50%, rgba(255, 0, 0, 0) 100%);
+            border-radius: 50%;
+            animation: explode 0.7s ease-out forwards;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            pointer-events: none;
+        }
+        
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div id="game-container" class="relative w-full max-w-lg bg-white p-6 rounded-xl shadow-2xl text-center">
+        <h1 class="text-3xl font-bold mb-4 text-blue-600">🐍 Classic Snake Game (Quiz Mode)</h1>
+        <p class="text-gray-600 mb-6">Jawab kuis setelah makan untuk mendapat skor! **Mode Teleportasi Dinding Aktif**.</p>
+
+        <!-- Score and Status Area -->
+        <div class="flex justify-between items-center mb-4 p-3 bg-blue-50 rounded-lg">
+            <div class="text-lg font-semibold text-gray-700 space-x-2">
+                <span id="playerInfo" class="text-indigo-600 font-bold"></span> 
+                <span>|</span>
+                <span>Score: <span id="score" class="text-blue-600">0</span></span> 
+                <span>|</span>
+                <span>Food: <span id="foodEaten" class="text-purple-600">0</span>/10</span>
+            </div>
+            <button id="startButton" class="px-4 py-2 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 transition duration-150 shadow-md">
+                Restart
+            </button>
+        </div>
+
+        <!-- Game Canvas -->
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Game Over/Information Message -->
+        <div id="messageBox" class="mt-4 p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-lg hidden">
+            <span id="messageText" class="font-semibold">Press the Restart button to play!</span>
+        </div>
+        
+        <!-- Bonus Status (for the Golden Coin) -->
+        <div id="bonusStatus" class="mt-4 p-2 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-lg hidden">
+            <span class="font-bold">BONUS COIN 🌟:</span> <span id="bonusTimer">10</span> detik tersisa!
+        </div>
+
+        <!-- Mobile Controls (Optional) -->
+        <div class="mobile-controls space-y-2">
+            <p class="text-gray-600 font-semibold mb-2">Kontrol Mobile</p>
+            <div class="flex justify-center">
+                <button data-direction="UP" class="control-btn p-3 w-16 h-12">↑</button>
+            </div>
+            <div class="flex justify-center space-x-2">
+                <button data-direction="LEFT" class="control-btn p-3 w-16 h-12">←</button>
+                <div class="w-16 h-12"></div> <!-- Placeholder for centering -->
+                <button data-direction="RIGHT" class="control-btn p-3 w-16 h-12">→</button>
+            </div>
+            <div class="flex justify-center">
+                <button data-direction="DOWN" class="control-btn p-3 w-16 h-12">↓</button>
+            </div>
+        </div>
+        
+        <!-- Feedback Overlay (for Correct/Incorrect animations) -->
+        <div id="feedbackOverlay" class="full-overlay hidden pointer-events-none">
+            <div id="feedbackMessage" class="text-white text-4xl font-extrabold p-4 rounded-xl shadow-lg transform scale-100 transition duration-300 z-20"></div>
+            <div id="animationContainer" class="absolute w-full h-full">
+                <!-- Animation elements will be generated here -->
+            </div>
+        </div>
+
+        <!-- START SCREEN (Overlay) -->
+        <div id="startScreen" class="full-overlay">
+            <div class="start-card">
+                <!-- Emoji Ular Lucu -->
+                <div class="mx-auto mb-4 w-24 h-24 flex items-center justify-center text-6xl bg-green-200 rounded-full shadow-lg border-4 border-green-400">
+                    🐍
+                </div>
+                
+                <h2 class="text-3xl font-extrabold text-blue-700 mb-6">Welcome to Quiz Snake!</h2>
+                <div class="space-y-4">
+                    <input type="text" id="playerName" placeholder="Enter Your Name" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" maxlength="15">
+                    <input type="text" id="playerClass" placeholder="Enter Class (Optional)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" maxlength="10">
+                    <p class="text-sm text-gray-500 pt-2">Reach 10 Food (100 Score) to Win! Wall collision disabled (Warp Mode).</p>
+                    <p class="text-sm text-red-600 font-bold">PERINGATAN: Kecepatan ular diatur ke $250 \text{ ms}$ (Kecepatan Santai) dan tidak akan berubah!</p>
+                    <button id="startPlayButton" class="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-200 shadow-lg">
+                        Start Game
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quiz Modal (Overlay) -->
+        <div id="quizModal" class="full-overlay hidden">
+            <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm text-left">
+                <h3 class="text-xl font-bold mb-4 text-purple-600">📝 English Vocabulary Quiz</h3>
+                
+                <!-- Timer Display: NEW ELEMENT -->
+                <div class="mb-4 text-center p-2 bg-red-100 border border-red-400 rounded-lg">
+                    Waktu Tersisa: <span id="quizTimer" class="font-bold text-red-600">30</span> detik
+                </div>
+                
+                <p id="quizQuestion" class="mb-4 text-gray-800 font-medium"></p>
+                <div id="quizOptions" class="space-y-2">
+                    <!-- Options injected by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Win/Game Over Modal (Overlay) -->
+        <div id="resultModal" class="full-overlay hidden">
+            <div class="start-card">
+                <h2 id="resultTitle" class="text-3xl font-extrabold mb-4"></h2>
+                <p id="resultMessage" class="text-lg mb-6 text-gray-700"></p>
+                <p class="text-2xl font-bold mb-6">Final Score: <span id="finalScore" class="text-blue-600">0</span></p>
+                <button id="restartResultButton" class="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-200 shadow-lg">
+                    Play Again
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startButton = document.getElementById('startButton');
+        const scoreDisplay = document.getElementById('score');
+        const foodEatenDisplay = document.getElementById('foodEaten');
+        const playerInfoDisplay = document.getElementById('playerInfo');
+        const messageBox = document.getElementById('messageBox');
+        const messageText = document.getElementById('messageText');
+        const quizModal = document.getElementById('quizModal');
+        const quizQuestionText = document.getElementById('quizQuestion');
+        const quizOptionsContainer = document.getElementById('quizOptions');
+        const startScreen = document.getElementById('startScreen');
+        const startPlayButton = document.getElementById('startPlayButton');
+        const playerNameInput = document.getElementById('playerName');
+        const playerClassInput = document.getElementById('playerClass');
+        const resultModal = document.getElementById('resultModal');
+        const resultTitle = document.getElementById('resultTitle');
+        const resultMessage = document.getElementById('resultMessage');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const restartResultButton = document.getElementById('restartResultButton');
+        const feedbackOverlay = document.getElementById('feedbackOverlay');
+        const feedbackMessage = document.getElementById('feedbackMessage');
+        const animationContainer = document.getElementById('animationContainer');
+        const quizTimerDisplay = document.getElementById('quizTimer');
+        
+        // Bonus Coin Elements
+        const bonusStatus = document.getElementById('bonusStatus');
+        const bonusTimerDisplay = document.getElementById('bonusTimer');
+
+
+        // --- Game Variables ---
+        const TILE_SIZE = 20; 
+        const GRID_SIZE = 15; 
+        const WIN_COUNT = 10; 
+        canvas.width = TILE_SIZE * GRID_SIZE;
+        canvas.height = TILE_SIZE * GRID_SIZE;
+
+        let snake;
+        let food;
+        let bonusCoin = null; // New: Variable for bonus coin position
+        let bonusTimerInterval = null; // New: Interval for bonus coin countdown
+        
+        let dx;
+        let dy;
+        let score;
+        let foodEaten;
+        let gameLoopInterval;
+        let quizTimerInterval; 
+        
+        // Fixed speed
+        let gameSpeed = 250; 
+        
+        isRunning = false;
+        let nextDx = 1;
+        let nextDy = 0;
+        let isChangingDirection = false;
+        let currentQuiz;
+        let isQuizActive = false;
+        let playerName = "Player"; 
+        let playerClass = "";
+
+        // Fruit Emojis for food
+        const FRUITS = ["🍎", "🍊", "🍋", "🍇", "🍉", "🍓", "🥝", "🍍"];
+        let foodEmoji; 
+        
+        // Quiz Data
+        const QUIZ_DATA = [
+            // Antonyms (Opposites)
+            { question: "What is the opposite of 'Happy'?", options: ["Joyful", "Angry", "Glad", "Sad"], correct: "Sad" },
+            { question: "The antonym of 'Fast' is...", options: ["Quick", "Swift", "Slow", "Speedy"], correct: "Slow" },
+            { question: "What is the opposite of 'Light' (in weight)?", options: ["Heavy", "Bright", "Dark", "Easy"], correct: "Heavy" },
+            { question: "The opposite of 'Empty' is...", options: ["Hole", "Full", "Open", "Dry"], correct: "Full" },
+            { question: "What is the opposite of 'Up'?", options: ["Over", "Down", "Above", "Side"], correct: "Down" },
+            { question: "The antonym of 'Old' is...", options: ["Ancient", "Young", "Grown", "Tired"], correct: "Young" },
+            
+            // Synonyms (Similar Words)
+            { question: "Which word is similar to 'Big'?", options: ["Tiny", "Small", "Large", "Thin"], correct: "Large" },
+            { question: "Another word for 'Finish' is...", options: ["Start", "Begin", "Complete", "Open"], correct: "Complete" },
+            { question: "Find the synonym for 'Quiet'.", options: ["Loud", "Silent", "Noisy", "Talk"], correct: "Silent" },
+            { question: "Which word means the same as 'Begin'?", options: ["End", "Stop", "Start", "Wait"], correct: "Start" },
+            { question: "A synonym for 'Smart' is...", options: ["Dumb", "Foolish", "Clever", "Simple"], correct: "Clever" },
+            { question: "Which word is similar to 'Gift'?", options: ["Take", "Buy", "Present", "Sell"], correct: "Present" }
+        ];
+
+        // --- Audio Setup (Tone.js) ---
+        let initializedAudio = false;
+        let startSynth, correctSynth, incorrectSynth, winSynth, bonusSynth; // New: bonusSynth
+
+        function initializeAudio() {
+            if (initializedAudio || typeof Tone === 'undefined') return;
+
+            Tone.start().then(() => {
+                startSynth = new Tone.PluckSynth().toDestination();
+                
+                correctSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: "triangle" },
+                    envelope: { attack: 0.01, decay: 0.1, sustain: 0.1, release: 0.5 }
+                }).toDestination();
+                
+                incorrectSynth = new Tone.NoiseSynth({
+                    noise: { type: "pink" },
+                    envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.2 }
+                }).toDestination();
+                
+                winSynth = new Tone.PolySynth(Tone.Synth, {
+                    envelope: { attack: 0.01, decay: 0.8, sustain: 0.3, release: 1.5 }
+                }).toDestination();
+                
+                // New: Bonus Coin Sound (Upbeat/Collect)
+                bonusSynth = new Tone.PluckSynth().toDestination();
+
+                initializedAudio = true;
+            }).catch(e => console.error("Tone.js initialization failed:", e));
+        }
+
+        function playStartSound() {
+            if (!initializedAudio) return;
+            startSynth.triggerAttackRelease("C4", "8n");
+        }
+
+        function playCorrectSound() {
+            if (!initializedAudio) return;
+            correctSynth.triggerAttackRelease(["C5", "E5", "G5"], "8n");
+        }
+
+        function playIncorrectSound() {
+            if (!initializedAudio) return;
+            incorrectSynth.triggerAttackRelease("4n");
+        }
+        
+        function playBonusSound() {
+            if (!initializedAudio) return;
+            bonusSynth.triggerAttackRelease("G6", "16n"); // Nada tinggi untuk koin
+        }
+        
+        function playGameOverSound(isWin) {
+            if (!initializedAudio) return;
+            if (isWin) {
+                winSynth.triggerAttackRelease(["C5", "E5", "G5", "C6"], "1n");
+            } else {
+                incorrectSynth.set({ noise: { type: "brown" } }); 
+                incorrectSynth.triggerAttackRelease("2n");
+                Tone.Transport.scheduleOnce(() => {
+                    incorrectSynth.set({ noise: { type: "pink" } });
+                }, Tone.now() + 0.3);
+            }
+        }
+
+
+        // --- Main Functions ---
+
+        function initGame() {
+            // Clear bonus coin timers/status
+            clearBonusCoin();
+
+            // Hide all overlays
+            startScreen.classList.add('hidden');
+            quizModal.classList.add('hidden');
+            resultModal.classList.add('hidden');
+            feedbackOverlay.classList.add('hidden'); 
+
+            // Clear quiz timer if it exists
+            if (quizTimerInterval) {
+                clearInterval(quizTimerInterval);
+            }
+
+            // Reset game state
+            snake = [
+                { x: 7, y: 7 }, 
+                { x: 6, y: 7 },
+                { x: 5, y: 7 }
+            ];
+            dx = 1;
+            dy = 0;
+            nextDx = 1;
+            nextDy = 0;
+            score = 0;
+            foodEaten = 0;
+            scoreDisplay.textContent = score;
+            foodEatenDisplay.textContent = foodEaten;
+            
+            gameSpeed = 250; 
+            
+            isRunning = true;
+            isQuizActive = false;
+            messageBox.classList.add('hidden');
+
+            const classText = playerClass ? ` - ${playerClass}` : '';
+            playerInfoDisplay.textContent = `${playerName}${classText}`;
+            
+            generateFood();
+            
+            if (gameLoopInterval) {
+                clearInterval(gameLoopInterval);
+            }
+            gameLoopInterval = setInterval(gameTick, gameSpeed);
+            
+            playStartSound(); 
+            
+            // Start the bonus coin generator logic
+            startBonusGenerator();
+        }
+
+        function startBonusGenerator() {
+            // Generates a bonus coin every 15-30 seconds
+            const interval = (Math.random() * (30 - 15) + 15) * 1000;
+            
+            setTimeout(() => {
+                if (isRunning && !isQuizActive) {
+                    generateBonusCoin();
+                }
+                // Schedule the next coin generation regardless
+                startBonusGenerator();
+            }, interval);
+        }
+
+        function generateBonusCoin() {
+            let newCoinPosition;
+            let attempts = 0;
+            const MAX_ATTEMPTS = 100;
+
+            do {
+                newCoinPosition = {
+                    x: Math.floor(Math.random() * GRID_SIZE),
+                    y: Math.floor(Math.random() * GRID_SIZE)
+                };
+                attempts++;
+            } while (isPositionOccupied(newCoinPosition) && attempts < MAX_ATTEMPTS);
+            
+            if (attempts < MAX_ATTEMPTS) {
+                bonusCoin = newCoinPosition;
+                showBonusTimer(10); // Start timer display
+            }
+        }
+        
+        /**
+         * Checks if a position is occupied by the snake or regular food.
+         */
+        function isPositionOccupied(pos) {
+            const isFood = food && food.x === pos.x && food.y === pos.y;
+            return isFood || snake.some(segment => segment.x === pos.x && segment.y === pos.y);
+        }
+
+        function showBonusTimer(duration) {
+            let timeLeft = duration;
+            bonusTimerDisplay.textContent = timeLeft;
+            bonusStatus.classList.remove('hidden');
+
+            // Clear existing timer if any
+            if (bonusTimerInterval) {
+                clearInterval(bonusTimerInterval);
+            }
+
+            bonusTimerInterval = setInterval(() => {
+                timeLeft--;
+                bonusTimerDisplay.textContent = timeLeft;
+
+                if (timeLeft <= 0) {
+                    clearBonusCoin();
+                    
+                    // Show message that coin disappeared briefly
+                    messageText.textContent = `Koin Emas menghilang! Tunggu koin berikutnya.`;
+                    messageBox.classList.remove('hidden', 'bg-red-100', 'bg-green-100');
+                    messageBox.classList.add('bg-yellow-100', 'border-yellow-400', 'text-yellow-700');
+                    
+                    setTimeout(() => {
+                        messageBox.classList.add('hidden');
+                    }, 1500);
+                }
+            }, 1000); // Update every second
+        }
+
+        function clearBonusCoin() {
+            bonusCoin = null;
+            bonusStatus.classList.add('hidden');
+            if (bonusTimerInterval) {
+                clearInterval(bonusTimerInterval);
+                bonusTimerInterval = null;
+            }
+        }
+
+        function generateFood() {
+            let newFoodPosition;
+            do {
+                newFoodPosition = {
+                    x: Math.floor(Math.random() * GRID_SIZE),
+                    y: Math.floor(Math.random() * GRID_SIZE)
+                };
+            } while (isPositionOccupied(newFoodPosition)); // Use isPositionOccupied
+            
+            food = newFoodPosition;
+            foodEmoji = FRUITS[Math.floor(Math.random() * FRUITS.length)];
+        }
+
+        function isFoodOnSnake(pos) {
+            return snake.some(segment => segment.x === pos.x && segment.y === pos.y);
+        }
+
+        function gameTick() {
+            if (!isRunning) return;
+
+            dx = nextDx;
+            dy = nextDy;
+            isChangingDirection = false;
+
+            let head = { x: snake[0].x + dx, y: snake[0].y + dy };
+
+            // 1. LOGIC: Wall Teleportation (Warp)
+            if (head.x < 0) head.x = GRID_SIZE - 1;
+            if (head.x >= GRID_SIZE) head.x = 0;
+            if (head.y < 0) head.y = GRID_SIZE - 1;
+            if (head.y >= GRID_SIZE) head.y = 0;
+
+            // 2. Check Game Over (Self Collision ONLY)
+            if (checkSelfCollision(head)) {
+                gameOver(false, "You crashed into yourself!"); 
+                return;
+            }
+
+            // Tambahkan kepala baru (akan dihapus nanti jika tidak makan apa-apa)
+            snake.unshift(head);
+            let hasEaten = false;
+
+            // 3. NEW: Check Eating Bonus Coin
+            if (bonusCoin && head.x === bonusCoin.x && head.y === bonusCoin.y) {
+                // EAT BONUS COIN!
+                score += 10;
+                scoreDisplay.textContent = score;
+                playBonusSound();
+                clearBonusCoin(); // Remove coin and timer
+                
+                // Show bonus message
+                messageText.textContent = `BONUS! +10 Poin dari Koin Emas!`;
+                messageBox.classList.remove('hidden', 'bg-yellow-100', 'bg-red-100');
+                messageBox.classList.add('bg-yellow-300', 'border-yellow-600', 'text-yellow-900');
+                setTimeout(() => {
+                    messageBox.classList.add('hidden');
+                }, 1000);
+
+                // Snake grows when eating a bonus coin
+                hasEaten = true;
+            }
+
+            // 4. Check Eating Food (Triggers Quiz)
+            if (head.x === food.x && head.y === food.y) {
+                // Food eaten. Pause Game and display quiz.
+                isRunning = false; 
+                clearInterval(gameLoopInterval);
+                clearBonusCoin(); // Hide bonus coin while quizzing
+                showQuiz();
+                hasEaten = true;
+                
+                // TIDAK boleh pop() di sini, karena quiz akan menentukan apakah ular tumbuh atau tidak.
+            }
+
+            // 5. Normal movement (remove tail) if nothing was eaten
+            if (!hasEaten) {
+                snake.pop();
+            }
+
+            drawGame();
+        }
+
+        function checkSelfCollision(head) {
+            for (let i = 1; i < snake.length; i++) {
+                if (head.x === snake[i].x && head.y === snake[i].y) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function gameOver(isWin, reason) {
+            isRunning = false;
+            isQuizActive = false;
+            clearBonusCoin(); // Clear bonus coin state
+            quizModal.classList.add('hidden');
+            feedbackOverlay.classList.add('hidden');
+            clearInterval(gameLoopInterval);
+            if (quizTimerInterval) {
+                clearInterval(quizTimerInterval); 
+            }
+
+            playGameOverSound(isWin); 
+
+            finalScoreDisplay.textContent = score;
+            resultModal.classList.remove('hidden');
+
+            if (isWin) {
+                resultTitle.textContent = "🏆 CONGRATULATIONS! YOU WIN! 🏆";
+                resultTitle.classList.remove('text-red-600');
+                resultTitle.classList.add('text-green-600');
+                resultMessage.textContent = `Great job, ${playerName}! You successfully answered 10 questions and reached the maximum score of 100!`;
+                restartResultButton.textContent = "Play Again";
+            } else {
+                resultTitle.textContent = "GAME OVER";
+                resultTitle.classList.remove('text-green-600');
+                resultTitle.classList.add('text-red-600');
+                resultMessage.textContent = `Too bad, ${playerName}. ${reason || 'Try again!'}`;
+                restartResultButton.textContent = "Try Again";
+            }
+
+            drawGame();
+        }
+
+        // --- Quiz Functions ---
+
+        function showQuiz() {
+            isQuizActive = true;
+            currentQuiz = QUIZ_DATA[Math.floor(Math.random() * QUIZ_DATA.length)];
+            
+            quizQuestionText.textContent = currentQuiz.question;
+            quizOptionsContainer.innerHTML = ''; 
+
+            currentQuiz.options.forEach((option, index) => {
+                const button = document.createElement('button');
+                button.textContent = option;
+                button.className = 'quiz-btn w-full p-3 bg-indigo-100 text-indigo-700 font-semibold rounded-lg hover:bg-indigo-200 transition duration-150 text-left';
+                button.onclick = () => handleQuizAnswer(option);
+                quizOptionsContainer.appendChild(button);
+            });
+
+            quizModal.classList.remove('hidden');
+            
+            // TIMER LOGIC START
+            let timeLeft = 30; // 30 seconds limit
+            quizTimerDisplay.textContent = timeLeft;
+
+            if (quizTimerInterval) {
+                clearInterval(quizTimerInterval);
+            }
+
+            quizTimerInterval = setInterval(() => {
+                timeLeft--;
+                quizTimerDisplay.textContent = timeLeft;
+
+                if (timeLeft <= 0) {
+                    clearInterval(quizTimerInterval);
+                    handleQuizAnswer('TIMEOUT'); 
+                }
+            }, 1000); 
+        }
+
+        function showFeedbackAnimation(isCorrect) {
+            feedbackOverlay.classList.remove('hidden');
+            animationContainer.innerHTML = '';
+            
+            if (isCorrect) {
+                feedbackMessage.textContent = "CORRECT!";
+                feedbackMessage.classList.remove('bg-red-600');
+                feedbackMessage.classList.add('bg-green-600');
+
+                const colors = ['#f97316', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'];
+                for (let i = 0; i < 50; i++) {
+                    const confetti = document.createElement('div');
+                    confetti.className = 'confetti';
+                    confetti.style.setProperty('--color', colors[Math.floor(Math.random() * colors.length)]);
+                    confetti.style.left = `50%`;
+                    confetti.style.top = `50%`; 
+                    confetti.style.setProperty('--x', `${(Math.random() - 0.5) * 500}px`); 
+                    confetti.style.setProperty('--rot', `${Math.random() * 720}deg`); 
+                    animationContainer.appendChild(confetti);
+                }
+
+            } else {
+                feedbackMessage.textContent = "INCORRECT!";
+                feedbackMessage.classList.remove('bg-green-600');
+                feedbackMessage.classList.add('bg-red-600');
+                
+                const shockwave = document.createElement('div');
+                shockwave.className = 'explosion-shockwave';
+                animationContainer.appendChild(shockwave);
+            }
+        }
+
+        function resumeGame(message, isCorrect) {
+            quizModal.classList.add('hidden');
+            isQuizActive = false;
+            
+            setTimeout(() => {
+                feedbackOverlay.classList.add('hidden');
+                animationContainer.innerHTML = '';
+            }, 1200); 
+
+            messageText.textContent = message;
+            messageBox.classList.remove('hidden', 'bg-yellow-100', 'border-yellow-400', 'text-yellow-700', 'bg-red-100', 'border-red-400', 'text-red-700', 'bg-green-100', 'border-green-400', 'text-green-700');
+            
+            if (isCorrect) {
+                messageBox.classList.add('bg-green-100', 'border-green-400', 'text-green-700');
+            } else {
+                messageBox.classList.add('bg-red-100', 'border-red-400', 'text-red-700');
+            }
+
+            if (foodEaten >= WIN_COUNT) {
+                gameOver(true); 
+                return;
+            }
+
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+                
+                isRunning = true;
+                gameLoopInterval = setInterval(gameTick, gameSpeed); 
+                startBonusGenerator(); // Restart bonus coin generator
+            }, 1500); 
+        }
+
+        function handleQuizAnswer(selectedOption) {
+            if (quizTimerInterval) {
+                clearInterval(quizTimerInterval);
+            }
+            
+            document.querySelectorAll('.quiz-btn').forEach(btn => btn.onclick = null);
+
+            let isCorrect;
+            let message;
+            let scoreChange;
+
+            // Check if the answer is a timeout
+            if (selectedOption === 'TIMEOUT') {
+                isCorrect = false;
+                scoreChange = -10; 
+                foodEaten++;
+                
+                // Hapus kepala ular agar tidak tumbuh
+                if (snake.length > 0) {
+                    snake.shift(); 
+                }
+                
+                showFeedbackAnimation(isCorrect); 
+                playIncorrectSound(); 
+                message = `Waktu Habis! Jawaban benar: '${currentQuiz.correct}'. Skor ${scoreChange}. Target: ${foodEaten}/${WIN_COUNT}`;
+                
+            } else {
+                isCorrect = selectedOption === currentQuiz.correct;
+                showFeedbackAnimation(isCorrect);
+                foodEaten++; 
+                
+                if (isCorrect) {
+                    scoreChange = 10;
+                    playCorrectSound(); 
+                    message = `Jawaban Benar! Skor +10. Ular Tumbuh! Target: ${foodEaten}/${WIN_COUNT}`;
+                    
+                } else {
+                    scoreChange = -5;
+                    playIncorrectSound(); 
+                    message = `Jawaban Salah. Jawaban benar: '${currentQuiz.correct}'. Skor ${scoreChange}. Target: ${foodEaten}/${WIN_COUNT}`;
+                    // Hapus kepala ular agar tidak tumbuh
+                    if (snake.length > 0) {
+                        snake.shift(); 
+                    }
+                }
+            }
+            
+            score += scoreChange;
+            if (score < 0) score = 0; 
+            
+            scoreDisplay.textContent = score; 
+            foodEatenDisplay.textContent = foodEaten;
+
+            generateFood(); 
+
+            resumeGame(message, isCorrect);
+        }
+
+        // --- Drawing Functions (Updated to include Bonus Coin) ---
+
+        /**
+         * Draws an emoji (text) onto the canvas tile.
+         */
+        function drawEmoji(x, y, emoji) {
+            ctx.font = `${TILE_SIZE - 4}px sans-serif`; 
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const centerX = x * TILE_SIZE + TILE_SIZE / 2;
+            const centerY = y * TILE_SIZE + TILE_SIZE / 2 + 2; 
+            ctx.fillText(emoji, centerX, centerY);
+        }
+
+        /**
+         * Draws a single snake body segment with border/highlight.
+         */
+        function drawSnakeBody(x, y) {
+            const margin = 2; 
+            const size = TILE_SIZE - 2 * margin;
+
+            ctx.fillStyle = '#16a34a'; 
+            ctx.fillRect(x * TILE_SIZE + margin, y * TILE_SIZE + margin, size, size);
+
+            ctx.fillStyle = '#4ade80'; 
+            ctx.fillRect(x * TILE_SIZE + margin + 1, y * TILE_SIZE + margin + 1, size - 2, size - 2);
+
+            ctx.fillStyle = '#86efac'; 
+            ctx.fillRect(x * TILE_SIZE + margin + 1, y * TILE_SIZE + margin + 1, size - 2, 2);
+        }
+        
+        /**
+         * Draws the snake head with directional eyes.
+         */
+        function drawSnakeHead(x, y) {
+            const margin = 1;
+            const size = TILE_SIZE - 2 * margin;
+
+            ctx.fillStyle = '#10b981'; 
+            ctx.fillRect(x * TILE_SIZE + margin, y * TILE_SIZE + margin, size, size);
+
+            ctx.fillStyle = 'black';
+            const eyeSize = 3;
+            const offset = 4; 
+
+            let eye1X, eye1Y, eye2X, eye2Y;
+            
+            if (dy !== 0) {
+                eye1X = x * TILE_SIZE + TILE_SIZE / 2 - offset; 
+                eye2X = x * TILE_SIZE + TILE_SIZE / 2 + offset; 
+                eye1Y = eye2Y = y * TILE_SIZE + TILE_SIZE / 2 + (dy * TILE_SIZE / 4); 
+            } 
+            else {
+                eye1Y = y * TILE_SIZE + TILE_SIZE / 2 - offset; 
+                eye2Y = y * TILE_SIZE + TILE_SIZE / 2 + offset; 
+                eye1X = eye2X = x * TILE_SIZE + TILE_SIZE / 2 + (dx * TILE_SIZE / 4); 
+            }
+            
+            ctx.beginPath();
+            ctx.arc(eye1X, eye1Y, eyeSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(eye2X, eye2Y, eyeSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawGame() {
+            // Clear canvas using a dark checkered pattern
+            for(let r=0; r < GRID_SIZE; r++) {
+                for(let c=0; c < GRID_SIZE; c++) {
+                    ctx.fillStyle = (r + c) % 2 === 0 ? '#1f2937' : '#111827'; 
+                    ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                }
+            }
+
+            // Draw Food (Emoji)
+            drawEmoji(food.x, food.y, foodEmoji);
+
+            // NEW: Draw Bonus Coin if present
+            if (bonusCoin) {
+                // Draw a flashing/pulsing golden coin
+                const flash = Math.sin(Date.now() / 150) * 0.5 + 0.5; // Pulse effect 0.0 to 1.0
+                
+                // Background shadow/glow
+                ctx.fillStyle = `rgba(255, 215, 0, ${flash * 0.4 + 0.3})`;
+                ctx.beginPath();
+                ctx.arc(bonusCoin.x * TILE_SIZE + TILE_SIZE / 2, bonusCoin.y * TILE_SIZE + TILE_SIZE / 2, TILE_SIZE / 2.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Draw the coin emoji
+                drawEmoji(bonusCoin.x, bonusCoin.y, '💰');
+            }
+
+            // Draw Snake
+            snake.forEach((segment, index) => {
+                if (index === 0) {
+                    drawSnakeHead(segment.x, segment.y);
+                } else {
+                    drawSnakeBody(segment.x, segment.y);
+                }
+            });
+            
+            // Re-schedule draw for continuous bonus coin animation (even if game is paused for quiz)
+            if (isRunning || isQuizActive) {
+                requestAnimationFrame(drawGame);
+            }
+        }
+
+
+        // --- Input and Event Listeners ---
+
+        function changeDirection(newDx, newDy) {
+            if (isRunning && !isChangingDirection && !isQuizActive) {
+                if ((newDx !== -dx && newDx !== 0) || (newDy !== -dy && newDy !== 0)) {
+                    nextDx = newDx;
+                    nextDy = newDy;
+                    isChangingDirection = true;
+                }
+            }
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (!isRunning && event.key !== ' ' && !isQuizActive) return;
+
+            switch (event.key) {
+                case 'ArrowLeft':
+                    changeDirection(-1, 0);
+                    break;
+                case 'ArrowUp':
+                    changeDirection(0, -1);
+                    break;
+                case 'ArrowRight':
+                    changeDirection(1, 0);
+                    break;
+                case 'ArrowDown':
+                    changeDirection(0, 1);
+                    break;
+                case ' ': 
+                    if (!isRunning && !isQuizActive && resultModal.classList.contains('hidden')) {
+                        if (startScreen.classList.contains('hidden')) initGame();
+                    } else if (!isRunning && !isQuizActive) {
+                        startScreen.classList.remove('hidden');
+                        resultModal.classList.add('hidden');
+                        drawGame(); 
+                    }
+                    break;
+            }
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) {
+                event.preventDefault();
+            }
+        });
+
+        // UI Button Event Listeners
+        startButton.addEventListener('click', () => {
+            startScreen.classList.remove('hidden');
+            if (gameLoopInterval) clearInterval(gameLoopInterval);
+            if (quizTimerInterval) clearInterval(quizTimerInterval);
+            clearBonusCoin(); // Clear bonus coin state on manual restart
+            isRunning = false;
+        });
+
+        startPlayButton.addEventListener('click', () => {
+            const name = playerNameInput.value.trim();
+            playerName = name || "Player";
+            playerClass = playerClassInput.value.trim();
+            
+            initializeAudio(); 
+            
+            initGame();
+        });
+
+        restartResultButton.addEventListener('click', () => {
+            startScreen.classList.remove('hidden');
+            resultModal.classList.add('hidden');
+            drawGame();
+        });
+
+        // Mobile controls event listeners
+        document.querySelectorAll('.control-btn').forEach(button => {
+            const eventStart = 'ontouchstart' in window ? 'touchstart' : 'mousedown';
+            
+            button.addEventListener(eventStart, (event) => {
+                event.preventDefault(); 
+                if (!isQuizActive && isRunning) {
+                    const direction = event.currentTarget.dataset.direction;
+                    switch (direction) {
+                        case 'UP':
+                            changeDirection(0, -1);
+                            break;
+                        case 'DOWN':
+                            changeDirection(0, 1);
+                            break;
+                        case 'LEFT':
+                            changeDirection(-1, 0);
+                            break;
+                        case 'RIGHT':
+                            changeDirection(1, 0);
+                            break;
+                    }
+                }
+            });
+        });
+
+        // --- Initialization on Page Load ---
+        window.onload = function() {
+            drawGame();
+            startScreen.classList.remove('hidden');
+        };
+
+    </script>
+</body>
+</html>
